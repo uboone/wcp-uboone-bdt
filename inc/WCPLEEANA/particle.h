@@ -139,31 +139,31 @@ void LEEana::create_particle(SpaceInfo& space_info, PFevalInfo& pfeval, Particle
 
     //std::cout<<"Setting spacepoints"<<std::endl;
     // Save the spacepoints with the same id as the current particle
-    std::vector<float> *temp_spacepoints_x = new std::vector<float>;
-    std::vector<float> *temp_spacepoints_y = new std::vector<float>;
-    std::vector<float> *temp_spacepoints_z = new std::vector<float>;
-    std::vector<float> *temp_spacepoints_q = new std::vector<float>;
+    std::vector<float> temp_spacepoints_x;
+    std::vector<float> temp_spacepoints_y;
+    std::vector<float> temp_spacepoints_z;
+    std::vector<float> temp_spacepoints_q;
     //std::cout<<"Number of spacepoints: "<<space_info.Trecchargeblob_spacepoints_real_cluster_id->size()<<std::endl;    
     for(int sp=0; sp<space_info.Trecchargeblob_spacepoints_real_cluster_id->size(); sp++){
       //std::cout<<"Checking sp "<<sp<<std::endl; 
       if(space_info.Trecchargeblob_spacepoints_real_cluster_id->at(sp)==pfeval.reco_id[reco_part]){
         //std::cout<<"Adding sp "<<sp<<" x="<<space_info.Trecchargeblob_spacepoints_x->at(sp)<<" q="<<space_info.Trecchargeblob_spacepoints_q->at(sp)<<std::endl; 
-        temp_spacepoints_x->push_back(space_info.Trecchargeblob_spacepoints_x->at(sp));
-        temp_spacepoints_y->push_back(space_info.Trecchargeblob_spacepoints_y->at(sp));
-        temp_spacepoints_z->push_back(space_info.Trecchargeblob_spacepoints_z->at(sp));
-        temp_spacepoints_q->push_back(space_info.Trecchargeblob_spacepoints_q->at(sp));
+        temp_spacepoints_x.push_back(space_info.Trecchargeblob_spacepoints_x->at(sp));
+        temp_spacepoints_y.push_back(space_info.Trecchargeblob_spacepoints_y->at(sp));
+        temp_spacepoints_z.push_back(space_info.Trecchargeblob_spacepoints_z->at(sp));
+        temp_spacepoints_q.push_back(space_info.Trecchargeblob_spacepoints_q->at(sp));
       }
     }
-    int n_spacepoints = temp_spacepoints_x->size();
+    int n_spacepoints = temp_spacepoints_x.size();
     if(n_spacepoints==0) continue;
 
     //std::cout<<"Computing length"<<std::endl;
     //Get the length of the proton by adding up the distance between each pair of spacepoints
     particle_info.track_len=0;
     for(int sp=0; sp<n_spacepoints-1; sp++){
-      double dx = temp_spacepoints_x->at(sp) - temp_spacepoints_x->at(sp+1);
-      double dy = temp_spacepoints_y->at(sp) - temp_spacepoints_y->at(sp+1);
-      double dz = temp_spacepoints_z->at(sp) - temp_spacepoints_z->at(sp+1);
+      double dx = temp_spacepoints_x.at(sp) - temp_spacepoints_x.at(sp+1);
+      double dy = temp_spacepoints_y.at(sp) - temp_spacepoints_y.at(sp+1);
+      double dz = temp_spacepoints_z.at(sp) - temp_spacepoints_z.at(sp+1);
       double dist = sqrt(pow(dx,2)+pow(dy,2)+pow(dz,2));
       particle_info.track_len+=dist;
     }
@@ -172,44 +172,43 @@ void LEEana::create_particle(SpaceInfo& space_info, PFevalInfo& pfeval, Particle
     // Check the start and end of the proton track to see if one matches the first spacepoint. 
     // This tells us if the spacepoints for this track were saved track start-to-end or track end-to-start
     // If neither matches, throw an error, I think this can happen sometimes for mouns (vertex sometimes gets redefined in the reco)? But have not seen if for protons
-    if( !(temp_spacepoints_x->at(0)>part_x-tolerance_sp && temp_spacepoints_x->at(0)<part_x+tolerance_sp && temp_spacepoints_y->at(0)>part_y-tolerance_sp && temp_spacepoints_y->at(0)<part_y+tolerance_sp && temp_spacepoints_z->at(0)>part_z-tolerance_sp && temp_spacepoints_z->at(0)<part_z+tolerance_sp) ){
-      if(!(temp_spacepoints_x->back()>part_x-tolerance_sp && temp_spacepoints_x->back()<part_x+tolerance_sp && temp_spacepoints_y->back()>part_y-tolerance_sp && temp_spacepoints_y->back()<part_y+tolerance_sp && temp_spacepoints_z->back()>part_z-tolerance_sp && temp_spacepoints_z->back()<part_z+tolerance_sp) ){
-        particle_info.spacepoints_x = temp_spacepoints_x;
-        particle_info.spacepoints_y = temp_spacepoints_y;
-        particle_info.spacepoints_z = temp_spacepoints_z;
-        particle_info.spacepoints_q = temp_spacepoints_q; 
+    if( !(temp_spacepoints_x.at(0)>part_x-tolerance_sp && temp_spacepoints_x.at(0)<part_x+tolerance_sp && temp_spacepoints_y.at(0)>part_y-tolerance_sp && temp_spacepoints_y.at(0)<part_y+tolerance_sp && temp_spacepoints_z.at(0)>part_z-tolerance_sp && temp_spacepoints_z.at(0)<part_z+tolerance_sp) ){
+      if(!(temp_spacepoints_x.back()>part_x-tolerance_sp && temp_spacepoints_x.back()<part_x+tolerance_sp && temp_spacepoints_y.back()>part_y-tolerance_sp && temp_spacepoints_y.back()<part_y+tolerance_sp && temp_spacepoints_z.back()>part_z-tolerance_sp && temp_spacepoints_z.back()<part_z+tolerance_sp) ){
+        *particle_info.spacepoints_x = temp_spacepoints_x;
+        *particle_info.spacepoints_y = temp_spacepoints_y;
+        *particle_info.spacepoints_z = temp_spacepoints_z;
+        *particle_info.spacepoints_q = temp_spacepoints_q; 
       }else{
-        std::vector<float> *rev_temp_spacepoints_x = new std::vector<float>;
-        std::vector<float> *rev_temp_spacepoints_y = new std::vector<float>;
-        std::vector<float> *rev_temp_spacepoints_z = new std::vector<float>;
-        std::vector<float> *rev_temp_spacepoints_q = new std::vector<float>;
+        std::vector<float> rev_temp_spacepoints_x;
+        std::vector<float> rev_temp_spacepoints_y;
+        std::vector<float> rev_temp_spacepoints_z;
+        std::vector<float> rev_temp_spacepoints_q;
         for(int sp=0; sp<n_spacepoints; sp++){
-          rev_temp_spacepoints_x->push_back(temp_spacepoints_x->at(n_spacepoints-1-sp));
-          rev_temp_spacepoints_y->push_back(temp_spacepoints_y->at(n_spacepoints-1-sp));
-          rev_temp_spacepoints_z->push_back(temp_spacepoints_z->at(n_spacepoints-1-sp));
-          rev_temp_spacepoints_q->push_back(temp_spacepoints_q->at(n_spacepoints-1-sp));
+          rev_temp_spacepoints_x.push_back(temp_spacepoints_x.at(n_spacepoints-1-sp));
+          rev_temp_spacepoints_y.push_back(temp_spacepoints_y.at(n_spacepoints-1-sp));
+          rev_temp_spacepoints_z.push_back(temp_spacepoints_z.at(n_spacepoints-1-sp));
+          rev_temp_spacepoints_q.push_back(temp_spacepoints_q.at(n_spacepoints-1-sp));
         }
-        particle_info.spacepoints_x = rev_temp_spacepoints_x;
-        particle_info.spacepoints_y = rev_temp_spacepoints_y;
-        particle_info.spacepoints_z = rev_temp_spacepoints_z;
-        particle_info.spacepoints_q = rev_temp_spacepoints_q;
+        *particle_info.spacepoints_x = rev_temp_spacepoints_x;
+        *particle_info.spacepoints_y = rev_temp_spacepoints_y;
+        *particle_info.spacepoints_z = rev_temp_spacepoints_z;
+        *particle_info.spacepoints_q = rev_temp_spacepoints_q;
       }
     }else{ 
-      particle_info.spacepoints_x = temp_spacepoints_x;
-      particle_info.spacepoints_y = temp_spacepoints_y;
-      particle_info.spacepoints_z = temp_spacepoints_z;
-      particle_info.spacepoints_q = temp_spacepoints_q;
+      *particle_info.spacepoints_x = temp_spacepoints_x;
+      *particle_info.spacepoints_y = temp_spacepoints_y;
+      *particle_info.spacepoints_z = temp_spacepoints_z;
+      *particle_info.spacepoints_q = temp_spacepoints_q;
     }
 
     // Save the median dqdx
-    std::vector<float> *sorted_spacepoints_q = new std::vector<float>; 
-    *sorted_spacepoints_q = *(particle_info.spacepoints_q);
-    std::sort(sorted_spacepoints_q->begin(), sorted_spacepoints_q->end());
-    size_t size = sorted_spacepoints_q->size();
+    std::vector<float> sorted_spacepoints_q = *(particle_info.spacepoints_q);
+    std::sort(sorted_spacepoints_q.begin(), sorted_spacepoints_q.end());
+    size_t size = sorted_spacepoints_q.size();
     if (size % 2 == 0) {
-      particle_info.spacepoints_q_med = (((sorted_spacepoints_q->at(size / 2 - 1) + sorted_spacepoints_q->at(size / 2)) / 2.0)+10000)*10;
+      particle_info.spacepoints_q_med = (((sorted_spacepoints_q.at(size / 2 - 1) + sorted_spacepoints_q.at(size / 2)) / 2.0)+10000)*10;
     }else{
-      particle_info.spacepoints_q_med  = ((sorted_spacepoints_q->at(size / 2))+10000)*10;
+      particle_info.spacepoints_q_med  = ((sorted_spacepoints_q.at(size / 2))+10000)*10;
     }
 
     // Find the mother that was larpid matched and add some extra info on it

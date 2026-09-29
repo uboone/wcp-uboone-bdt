@@ -7,6 +7,7 @@
 #include <set>
 #include <limits>
 #include <unordered_map>
+#include <algorithm>
 
 #include "TFile.h"
 #include "TTree.h"
