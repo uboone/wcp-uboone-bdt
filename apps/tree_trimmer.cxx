@@ -32,7 +32,7 @@ struct PairHash {
     }
 };
 using Key = std::pair<int,int>;
-using Value = std::pair< bool, std::unordered_map<int,std::vector<int>> >;
+using Value = std::pair< bool, std::map<int,std::vector<int>> >;
 
 
 void print_help() {
@@ -191,7 +191,7 @@ bool keep_subrun(int run, int subrun,
                  int start_run, int start_subrun, int stop_run, int stop_subrun,
                  int remove_lantern_fails, bool haveReco, 
                  int flag_keep_only_bdt_train, const std::string& global_file_type, const std::map<string, std::set<std::pair<int, int>>>& map_type_run_subrun, 
-                 std::unordered_map<int,std::vector<int>>& remove_individual_run, 
+                 std::map<int,std::vector<int>>& remove_individual_run, 
                  int skip_cut, int flag_data, int flag_numi,
                  const std::set<int>& good_runlist_set, const std::set<int>& low_lifetime_set, const std::set<int>& low_neutrino_count_numi_run2RHC_set) {
 
@@ -579,7 +579,7 @@ int main( int argc, char** argv )
   }
 
   // Load list of individual runs to remove
-  std::unordered_map<int,std::vector<int>> remove_individual_run;
+  std::map<int,std::vector<int>> remove_individual_run;
   if (remove_individual_run_list != ""){
     ifstream infile(remove_individual_run_list);
     if (!infile.good()) {
@@ -661,12 +661,12 @@ int main( int argc, char** argv )
 
 
   // List of runs where Lantern container failed.
-  std::unordered_set<std::pair<int,int>, PairHash> lantern_fail;
-
+  //std::set<std::pair<int,int>, PairHash> lantern_fail;
+  std::set<std::pair<int,int>> lantern_fail;
 
   // Create run-subrun-index map and exlude and bad subruns.
   // Key is run, subrun pair, each holds a pair, first being if its flagged as a good run, second being a vecotr of pairs of event,tree index.
-  std::unordered_map<Key, Value, PairHash> run_sub_event_entry;
+  std::map<Key, Value> run_sub_event_entry;
 
   std::cout<<"Starting first pass loop to order run-subruns. Will pass over "<<nentry<<" entries."<<std::endl;
 

@@ -437,6 +437,19 @@ int LEEana::get_T_rse(TFile* file1, TTree*& T_rse, int &run, int &subrun, int &e
         return 1;
       }
     }
+    T_rse=(TTree*)file1->Get("wcpselection/T_eval_cv");
+    if(T_rse){
+      if(T_rse->GetBranch("run") && T_rse->GetBranch("subrun") && T_rse->GetBranch("event")){
+        T_rse->SetBranchStatus("run",1);
+        T_rse->SetBranchStatus("subrun",1);
+        T_rse->SetBranchStatus("event",1);
+        T_rse->SetBranchAddress("run",&run);
+        T_rse->SetBranchAddress("subrun",&subrun);
+        T_rse->SetBranchAddress("event",&event);
+        std::cout<<'\n'<<"Using T_eval for the run-subrun tree"<<'\n'<<std::endl;
+        return 1;
+      }
+    }
     T_rse=(TTree*)file1->Get("wcpselection/T_PFeval");
     if(T_rse){
       if(T_rse->GetBranch("run") && T_rse->GetBranch("subrun") && T_rse->GetBranch("event")){
