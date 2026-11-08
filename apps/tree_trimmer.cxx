@@ -32,7 +32,7 @@ struct PairHash {
     }
 };
 using Key = std::pair<int,int>;
-using Value = std::pair< bool, std::map<int,std::vector<int>> >;
+using Value = std::pair< bool, std::unordered_map<int,std::vector<int>> >;
 
 
 void print_help() {
@@ -191,7 +191,7 @@ bool keep_subrun(int run, int subrun,
                  int start_run, int start_subrun, int stop_run, int stop_subrun,
                  int remove_lantern_fails, bool haveReco, 
                  int flag_keep_only_bdt_train, const std::string& global_file_type, const std::map<string, std::set<std::pair<int, int>>>& map_type_run_subrun, 
-                 std::map<int,std::vector<int>>& remove_individual_run, 
+                 std::unordered_map<int,std::vector<int>>& remove_individual_run, 
                  int skip_cut, int flag_data, int flag_numi,
                  const std::set<int>& good_runlist_set, const std::set<int>& low_lifetime_set, const std::set<int>& low_neutrino_count_numi_run2RHC_set) {
 
@@ -579,18 +579,17 @@ int main( int argc, char** argv )
   }
 
   // Load list of individual runs to remove
-  std::map<int,std::vector<int>> remove_individual_run;
+  std::unordered_map<int,std::vector<int>> remove_individual_run;
   if (remove_individual_run_list != ""){
     ifstream infile(remove_individual_run_list);
     if (!infile.good()) {
       std::cout<<"Unable to open list of individual runs to remove. Exiting"<<std::endl;
       return 1;
     }
-    int run;
-    std::vector<int> subrun;
     std::string lineContent;
     while(std::getline(infile, lineContent)){
-      run=-1;
+      int run = -1;
+      std::vector<int> subrun; // the subruns of this line only
       std::stringstream ss(lineContent);
       int entry;
       // Extract each subrun entry from the given line
@@ -599,6 +598,11 @@ int main( int argc, char** argv )
         else{
           subrun.push_back(entry);
         }
+      }
+      if (run<0) continue; // empty line
+      if (subrun.size()==0) {
+        std::cout<<"No subruns given for run "<<run<<" in "<<remove_individual_run_list<<" (use -1 for all subruns). Exiting"<<std::endl;
+        return 1;
       }
       remove_individual_run[run] = subrun;
     }
@@ -634,10 +638,18 @@ int main( int argc, char** argv )
   wrangler_pot.map_rs_to_entry();
 
 
+  // The first pass reads the run/subrun/event (and Lantern's haveReco) from a second handle of the input file, with only
+  // these branches enabled, so it does not decompress the full trees (the trees of file1 are the ones being copied)
+  TFile *file1_rse = new TFile(input_file);
+
   // Load Lantern, used when dropping subruns where container failed.
-  int haveReco;
-  TTree *T_lantern = (TTree*)file1->Get("lantern/EventTree");
-  if(T_lantern && remove_lantern_fails==1) T_lantern->SetBranchAddress("haveReco",&haveReco);
+  int haveReco = 1;
+  TTree *T_lantern = (TTree*)file1_rse->Get("lantern/EventTree");
+  if(T_lantern && remove_lantern_fails==1){
+    T_lantern->SetBranchStatus("*",0);
+    T_lantern->SetBranchStatus("haveReco",1);
+    T_lantern->SetBranchAddress("haveReco",&haveReco);
+  }
   if(!T_lantern && remove_lantern_fails==1){
     std::cout<<"WARNING: remove_lantern_fails==1, but Lantern tree not found."<<'\n'<<std::endl;
   }
@@ -647,7 +659,7 @@ int main( int argc, char** argv )
   int subrun;
   int event;
   TTree *T_rse = nullptr;
-  int found_rse_tree = get_T_rse(file1, T_rse, run, subrun, event);
+  int found_rse_tree = get_T_rse(file1_rse, T_rse, run, subrun, event);
   if(!found_rse_tree){
     std::cout<<'\n'<<"Could not find RSE tree. Exiting."<<std::endl;
     return 1;
@@ -661,12 +673,12 @@ int main( int argc, char** argv )
 
 
   // List of runs where Lantern container failed.
-  //std::set<std::pair<int,int>, PairHash> lantern_fail;
-  std::set<std::pair<int,int>> lantern_fail;
+  std::unordered_set<std::pair<int,int>, PairHash> lantern_fail;
+
 
   // Create run-subrun-index map and exlude and bad subruns.
   // Key is run, subrun pair, each holds a pair, first being if its flagged as a good run, second being a vecotr of pairs of event,tree index.
-  std::map<Key, Value> run_sub_event_entry;
+  std::unordered_map<Key, Value, PairHash> run_sub_event_entry;
 
   std::cout<<"Starting first pass loop to order run-subruns. Will pass over "<<nentry<<" entries."<<std::endl;
 
@@ -708,7 +720,7 @@ int main( int argc, char** argv )
     //               std::unordered_map<int,std::vector<int>>                                                       event_index_map = {{event,indcies}};
     //std::pair<bool,std::unordered_map<int,std::vector<int> >> pair_goodrun_event_index_map = std::make_pair(false,event_index_map);
 
-    if(T_lantern) T_lantern->GetEntry(i);
+    if(T_lantern && remove_lantern_fails==1) T_lantern->GetEntry(i);
     else haveReco=1;
     if (haveReco==0){
       lantern_fail.insert(std::make_pair(run,subrun));
@@ -749,6 +761,11 @@ int main( int argc, char** argv )
   event_counter=0;
   verbose_counter=0;
 
+  // Entries to save. The loop below decides which ones (in run-subrun order, for the event limits), they are then read
+  // and filled in the order of the input file: reading in run-subrun order jumps between the hadd'ed pieces of the
+  // input and decompresses a new basket for nearly every event.
+  std::vector<int> save_indices;
+
   for (auto rs_it = run_sub_event_entry_first_subrun.begin(); rs_it != run_sub_event_entry_first_subrun.end(); rs_it++){
 
     if ((index_counter-verbose_counter)%set_verbose == 0) {
@@ -782,20 +799,7 @@ int main( int argc, char** argv )
           continue;
         }
         event_counter++;
-        int this_index = index_vector.at(i_it);
-        // Now fill all the trees.
-        for(auto tree_it=wrangler.old_trees->begin(); tree_it!=wrangler.old_trees->end(); tree_it++){
-          (*tree_it)->GetEntry(this_index);
-        }
-        for(auto tree_it=wrangler.new_trees->begin(); tree_it!=wrangler.new_trees->end(); tree_it++){
-          (*tree_it)->Fill();
-        }
-        for(auto tree_it=wrangler_ex.old_trees->begin(); tree_it!=wrangler_ex.old_trees->end(); tree_it++){
-          (*tree_it)->GetEntry(this_index);
-        }
-        for(auto tree_it=wrangler_ex.new_trees->begin(); tree_it!=wrangler_ex.new_trees->end(); tree_it++){
-          (*tree_it)->Fill();
-        }
+        save_indices.push_back(index_vector.at(i_it));
       } // i_it, loop over duplicates of the event.
 
     } // e_it, loop over all events in the run-subrun.
@@ -819,14 +823,37 @@ int main( int argc, char** argv )
 
   std::cout << "    seen: "<<index_counter<<"    saved: "  << event_counter<< std::endl;
 
+  // Now fill all the trees, in the order of the input file.
+  std::sort(save_indices.begin(), save_indices.end());
+  std::cout<<'\n'<<"Filling "<<save_indices.size()<<" events in input file order."<<std::endl;
+  for (size_t i_save=0; i_save<save_indices.size(); i_save++){
+    if (i_save%set_verbose == 0) std::cout << "    filled: "<<i_save<< std::endl;
+    int this_index = save_indices.at(i_save);
+    for(auto tree_it=wrangler.old_trees->begin(); tree_it!=wrangler.old_trees->end(); tree_it++){
+      (*tree_it)->GetEntry(this_index);
+    }
+    for(auto tree_it=wrangler.new_trees->begin(); tree_it!=wrangler.new_trees->end(); tree_it++){
+      (*tree_it)->Fill();
+    }
+    for(auto tree_it=wrangler_ex.old_trees->begin(); tree_it!=wrangler_ex.old_trees->end(); tree_it++){
+      (*tree_it)->GetEntry(this_index);
+    }
+    for(auto tree_it=wrangler_ex.new_trees->begin(); tree_it!=wrangler_ex.new_trees->end(); tree_it++){
+      (*tree_it)->Fill();
+    }
+  }
+  std::cout << "    filled: "<<save_indices.size()<< std::endl;
+
 
   // If saving the whole file overwrite limits, otherwise recover the events from the first subrun we started at if that is not complete.
-  if(max_events>T_rse->GetEntries() && stop_run>last_run && start_events==0 && start_run==0){
-    first_run=-1;
-    first_subrun=-1;
-    last_run=std::numeric_limits<int>::max();
-    last_subrun=std::numeric_limits<int>::max();
-  } 
+  // Without an event limit (-m, -e) the POT is selected with the run-subrun limits (-y -w -z -x, all of it by default),
+  // so subruns without events at the edges of a run range are kept and the run ranges of a file add up to its POT.
+  if(max_events>T_rse->GetEntries() && start_events==0){
+    first_run=start_run;
+    first_subrun=start_subrun;
+    last_run=stop_run;
+    last_subrun=stop_subrun;
+  }
 
 
   // Loop over each POT tree seperatly

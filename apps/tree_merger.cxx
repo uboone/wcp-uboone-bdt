@@ -5,6 +5,8 @@
 #include <set>
 #include <limits>
 #include <unordered_map>
+#include <vector>
+#include <tuple>
 
 #include "TFile.h"
 #include "TTree.h"
@@ -70,7 +72,7 @@ void build_output_trees(tree_wrangler& w1, tree_wrangler& w2, std::vector<TTree*
     // Get the trees only in one file or another
     if (t1 && !t2) {
       out_tree = t1->CloneTree(0);
-    } else if (t2) {
+    } else if (t2 && !t1) {
       out_tree = t2->CloneTree(0);
     }
 
@@ -262,7 +264,6 @@ int main( int argc, char** argv )
 
   }
 
-
   // Check if the output file exists if overwrite is not set.
   if(flag_overwrite!=1){
     TFile *f = nullptr;
@@ -310,7 +311,11 @@ int main( int argc, char** argv )
   int subrun1;
   int event1;
   TTree *T_rse1 = nullptr;
-  int found_rse_tree1 = get_T_rse(file1, T_rse1, run1, subrun1, event1);
+  // The first passes read run/subrun/event from second handles of the input files, with only these branches enabled
+  // (the trees of file1 and file2 are the ones being copied)
+  TFile *file1_rse = new TFile(input_file1);
+  TFile *file2_rse = new TFile(input_file2);
+  int found_rse_tree1 = get_T_rse(file1_rse, T_rse1, run1, subrun1, event1);
   if(!found_rse_tree1){
     std::cout<<'\n'<<"Could not find RSE tree for file1. Exiting."<<std::endl;
     return 1;
@@ -321,7 +326,7 @@ int main( int argc, char** argv )
   int subrun2;
   int event2;
   TTree *T_rse2 = nullptr;
-  int found_rse_tree2 = get_T_rse(file2, T_rse2, run2, subrun2, event2);
+  int found_rse_tree2 = get_T_rse(file2_rse, T_rse2, run2, subrun2, event2);
   if(!found_rse_tree2){
     std::cout<<'\n'<<"Could not find RSE tree for file2. Exiting."<<std::endl;
     return 1;
@@ -364,6 +369,7 @@ int main( int argc, char** argv )
   int event_counter=0;
   std::cout<<"Starting first pass loop over file1. Will pass over "<<nentry1<<" entries."<<std::endl;
   std::unordered_map<int, std::unordered_map<int, std::unordered_map<int,int > > > run_subrun_event_index_file1;
+  std::vector<std::tuple<int,int,int> > rse_file1(nentry1);
   for (Int_t i=0;i!=nentry1;i++){
     if ((i-verbose_counter)%set_verbose == 0) {
       std::cout << "    seen: "<<i<<"    passed: "  << event_counter << std::endl;
@@ -371,6 +377,7 @@ int main( int argc, char** argv )
     }
     T_rse1->GetEntry(i);
     run_subrun_event_index_file1[run1][subrun1][event1] = i;
+    rse_file1.at(i) = std::make_tuple(run1, subrun1, event1);
     index_counter=index_counter+1;
     event_counter=event_counter+1;
   }
@@ -405,62 +412,57 @@ int main( int argc, char** argv )
   index_counter=0;
   event_counter=0;
 
-  for (auto r_it = run_subrun_event_index_file1.begin(); r_it != run_subrun_event_index_file1.end(); r_it++){
+  // Loop over file1 in the order of its entries (file2 follows it when the files have the same order): reading in the
+  // order of the hash maps jumps through the files and decompresses a new basket for nearly every event.
+  for (Int_t this_index1=0; this_index1!=nentry1; this_index1++){
 
-    int this_run = (*r_it).first;
+    int this_run = std::get<0>(rse_file1.at(this_index1));
+    int this_subrun = std::get<1>(rse_file1.at(this_index1));
+    int this_event = std::get<2>(rse_file1.at(this_index1));
+
+    // Each run-subrun-event once, as in the map (the last entry of a duplicated event)
+    if (run_subrun_event_index_file1[this_run][this_subrun][this_event] != this_index1) continue;
+
     if (run_subrun_event_index_file2.find(this_run) == run_subrun_event_index_file2.end()) {
       std::cout<<"file 2 is missing run = "<<this_run<<". Exiting."<<std::endl;
       return 1;
     }
+    if (run_subrun_event_index_file2[this_run].find(this_subrun) == run_subrun_event_index_file2[this_run].end()) {
+      std::cout<<"file 2 is missing run,subrun = "<<this_run<<", "<<this_subrun<<". Exiting."<<std::endl;
+      return 1;
+    }
+    if (run_subrun_event_index_file2[this_run][this_subrun].find(this_event) == run_subrun_event_index_file2[this_run][this_subrun].end()) {
+      std::cout<<"file 2 is missing run,subrun,event = "<<this_run<<", "<<this_subrun<<", "<<this_event<<". Exiting."<<std::endl;
+      return 1;
+    }
 
-    for (auto s_it = (*r_it).second.begin(); s_it != (*r_it).second.end(); s_it++){
+    int this_index2 = run_subrun_event_index_file2[this_run][this_subrun][this_event];
 
-      int this_subrun = (*s_it).first;
-      if (run_subrun_event_index_file2[this_run].find(this_subrun) == run_subrun_event_index_file2[this_run].end()) {
-        std::cout<<"file 2 is missing run,subrun = "<<this_run<<", "<<this_subrun<<". Exiting."<<std::endl;
-        return 1;
-      }
+    // Now fill all the trees.
+    for(auto tree_it=wrangler1.old_trees->begin(); tree_it!=wrangler1.old_trees->end(); tree_it++){
+      (*tree_it)->GetEntry(this_index1);
+    }
+    for(auto tree_it=wrangler2.old_trees->begin(); tree_it!=wrangler2.old_trees->end(); tree_it++){
+      (*tree_it)->GetEntry(this_index2);
+    }
+    for(auto tree_it=wrangler_ex1.old_trees->begin(); tree_it!=wrangler_ex1.old_trees->end(); tree_it++){
+      (*tree_it)->GetEntry(this_index1);
+    }
+    for(auto tree_it=wrangler_ex2.old_trees->begin(); tree_it!=wrangler_ex2.old_trees->end(); tree_it++){
+      (*tree_it)->GetEntry(this_index2);
+    }
+    for(auto tree_it=new_trees->begin(); tree_it!=new_trees->end(); tree_it++){
+      (*tree_it)->Fill();
+    }
 
-      for (auto e_it = (*s_it).second.begin(); e_it != (*s_it).second.end(); e_it++){
+    if ((index_counter-verbose_counter)%set_verbose == 0) {
+      std::cout << "    seen: "<<index_counter<<"    saved: "  << event_counter<< std::endl;
+      verbose_counter=(int(int(index_counter)/int(set_verbose)))*set_verbose;
+    }
+    index_counter=index_counter+1;
+    event_counter=event_counter+1;
 
-      	int this_event = (*e_it).first;
-        if (run_subrun_event_index_file2[this_run][this_subrun].find(this_event) == run_subrun_event_index_file2[this_run][this_subrun].end()) {
-          std::cout<<"file 2 is missing run,subrun,event = "<<this_run<<", "<<this_subrun<<", "<<this_event<<". Exiting."<<std::endl;
-          return 1;
-        }
-        
-        int this_index1 = (*e_it).second;
-        int this_index2 = run_subrun_event_index_file2[this_run][this_subrun][this_event];
-        
-        // Now fill all the trees.
-        for(auto tree_it=wrangler1.old_trees->begin(); tree_it!=wrangler1.old_trees->end(); tree_it++){
-          (*tree_it)->GetEntry(this_index1);
-        }
-        for(auto tree_it=wrangler2.old_trees->begin(); tree_it!=wrangler2.old_trees->end(); tree_it++){
-          (*tree_it)->GetEntry(this_index2);
-        }
-        for(auto tree_it=wrangler_ex1.old_trees->begin(); tree_it!=wrangler_ex1.old_trees->end(); tree_it++){
-          (*tree_it)->GetEntry(this_index1);
-        }
-        for(auto tree_it=wrangler_ex2.old_trees->begin(); tree_it!=wrangler_ex2.old_trees->end(); tree_it++){
-          (*tree_it)->GetEntry(this_index2);
-        }
-        for(auto tree_it=new_trees->begin(); tree_it!=new_trees->end(); tree_it++){
-          (*tree_it)->Fill();
-        }
-
-        if ((index_counter-verbose_counter)%set_verbose == 0) {
-          std::cout << "    seen: "<<index_counter<<"    saved: "  << event_counter<< std::endl;
-          verbose_counter=(int(int(index_counter)/int(set_verbose)))*set_verbose;
-        }
-	index_counter=index_counter+1;
-	event_counter=event_counter+1;
-
-      } // e_it
-
-    } // s_it
-
-  } // r_it
+  } // this_index1
   std::cout << "    seen: "<<index_counter<<"    saved: "  << event_counter<< std::endl;
 
 

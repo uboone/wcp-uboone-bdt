@@ -38,17 +38,25 @@ using namespace LEEana;
 
 #include "WCPLEEANA/tree_wrangler.h"
 
+// NuMI horn current of a run: every run belongs to exactly one of FHC and RHC, so the FHC and RHC outputs never share a
+// run (beam-on and EXT alike). The boundaries follow the measured horn current per run (FHC/RHC POT of the slip-stacking
+// beam database, /exp/uboone/app/users/guzowski/slip_stacking/numi_v4.db). NuMI-off stretches, which only matter for
+// EXT, go with the horn mode chosen for them: run 1 6999-7770 and early run 2 8406-8744 to FHC, late run 2 11951-13696
+// to RHC; short NuMI-off gaps go with the surrounding mode.
+const int kFHC = 1, kRHC = 2;
+int numi_horn_mode(int run){
+  if (run <= 6747) return kFHC;    // run 1 FHC
+  if (run <= 6998) return kRHC;    // run 1 RHC
+  if (run <= 8744) return kFHC;    // run 1 NuMI-off (6999-7770) and run 2 before the beam (8406-8744)
+  if (run <= 8782) return kRHC;    // run 2, short RHC stretch
+  if (run <= 10120) return kFHC;   // run 2 FHC
+  if (run <= 21397) return kRHC;   // run 2 RHC and NuMI-off after it (11951-13696), runs 3, 4a, 4b, 4c RHC
+  return kFHC;                     // run 4c FHC, 4d, 5
+}
+
 int main( int argc, char** argv )
 {
-  if(argc==2 && argv[1][1]=='h'){
-    std::cout<<"TODO"<<std::endl;
-    return 0;
-  }
-  else if(argc==2 && argv[1][1]=='H'){
-    print_help_wrangler_config(true);
-    return 0;
-  }
-  else if (argc < 4) {
+  if (argc < 4) {
     std::cout << "numi_filter #input_file #prefix_outfile -f[#filter_level] -r[#run_filter]" << std::endl;
     
     return -1;
@@ -109,12 +117,11 @@ int main( int argc, char** argv )
     }
   }  
 
+
   TString outfile_name;
 
-
   tree_wrangler wrangler(flag_config, config_file_name, delimiter);
-  tree_wrangler wrangler_ex(flag_config, config_file_name, delimiter,2);
-  tree_wrangler wrangler_pot(flag_config, config_file_name, delimiter,1);
+  tree_wrangler wrangler_pot(flag_config, config_file_name, delimiter,true);
 
   std::vector<int>good_run_list_vec = get_good_run_list();
   std::set<int> good_runlist_set(good_run_list_vec.begin(), good_run_list_vec.end());
@@ -124,6 +131,7 @@ int main( int argc, char** argv )
   
   
   if (run_filter != 1) return 0;
+  const int horn_mode = (filter_level == 1) ? kFHC : kRHC;   // output: the runs of this horn mode (numi_horn_mode)
   if (filter_level == 1){
     std::cout << "FHC mode" << std::endl;
     outfile_name = prefix_out + "_FHC.root";
@@ -145,14 +153,12 @@ int main( int argc, char** argv )
 
   //Load other trees from directories as specified by the config file
   wrangler.get_old_trees(file1);
-  wrangler_ex.get_old_trees(file1);
   wrangler_pot.get_old_trees(file1);
 
   TFile *file2 = new TFile(outfile_name,"RECREATE");
 
   //Setup the directories specified in the config file
   wrangler.set_new_trees(file2);
-  wrangler_ex.set_new_trees(file2);
   wrangler_pot.set_new_trees(file2);
 
   // Build the pairs of pot trees
@@ -490,16 +496,7 @@ int main( int argc, char** argv )
     //   clear_pfeval_info(pfeval);
     // }
 
-    if (filter_level==1 && (eval.run > 6748 && eval.run <=7001 || // RHC
-			    eval.run >=10140 && eval.run <= 11949 ||
-			    eval.run >= 13697 && eval.run <=17566 ||
-			    eval.run >= 19668 && eval.run <=21410 
-			    ) ) continue;
-    if (filter_level!=1 && (eval.run <=6748 || // FHC
-			    eval.run >=8784 && eval.run <=10139 ||
-			    eval.run >= 21411 && eval.run <= 23259 ||
-			    eval.run >= 24256 && eval.run <= 25763
-			    )) continue;
+    if (numi_horn_mode(eval.run) != horn_mode) continue;
     
     t4->Fill();
     t1->Fill();
@@ -512,13 +509,8 @@ int main( int argc, char** argv )
     for(auto tree_it=wrangler.old_trees->begin(); tree_it!=wrangler.old_trees->end(); tree_it++){
         (*tree_it)->GetEntry(i);
     }
+
     for(auto tree_it=wrangler.new_trees->begin(); tree_it!=wrangler.new_trees->end(); tree_it++){
-        (*tree_it)->Fill();
-    }
-    for(auto tree_it=wrangler_ex.old_trees->begin(); tree_it!=wrangler_ex.old_trees->end(); tree_it++){
-        (*tree_it)->GetEntry(i);
-    }
-    for(auto tree_it=wrangler_ex.new_trees->begin(); tree_it!=wrangler_ex.new_trees->end(); tree_it++){
         (*tree_it)->Fill();
     }
 
@@ -537,16 +529,7 @@ int main( int argc, char** argv )
     if (good_runlist_set.find(pot.runNo) == good_runlist_set.end()) continue;
     if (low_lifetime_set.find(pot.runNo) != low_lifetime_set.end()) continue;
     
-    if (filter_level==1 && (pot.runNo > 6748 && pot.runNo <=7001 || // RHC
-			    pot.runNo >=10140 && pot.runNo <= 11949 ||
-			    pot.runNo >= 13697 && pot.runNo <=17566 ||
-			    pot.runNo >= 19668 && pot.runNo <=21410 
-			    ) ) continue;
-    if (filter_level!=1 && (pot.runNo <=6748 || // FHC
-			    pot.runNo >=8784 && pot.runNo <=10139 ||
-			    pot.runNo >= 21411 && pot.runNo <= 23259 ||
-			    pot.runNo >= 24256 && pot.runNo <= 25763
-			    )) continue;
+    if (numi_horn_mode(pot.runNo) != horn_mode) continue;
     t2->Fill();
   }
 
@@ -565,16 +548,7 @@ int main( int argc, char** argv )
     if (good_runlist_set.find((*pot_tree_it)->runNo) == good_runlist_set.end()) continue;
     if (low_lifetime_set.find((*pot_tree_it)->runNo) != low_lifetime_set.end()) continue;
 
-    if (filter_level==1 && ((*pot_tree_it)->runNo > 6748 && (*pot_tree_it)->runNo <=7001 || // RHC
-                            (*pot_tree_it)->runNo >=10140 && (*pot_tree_it)->runNo <= 11949 ||
-                            (*pot_tree_it)->runNo >= 13697 && (*pot_tree_it)->runNo <=17566 ||
-                            (*pot_tree_it)->runNo >= 19668 && (*pot_tree_it)->runNo <=21410
-                            ) ) continue;
-    if (filter_level!=1 && ((*pot_tree_it)->runNo <=6748 || // FHC
-                            (*pot_tree_it)->runNo >=8784 && (*pot_tree_it)->runNo <=10139 ||
-                            (*pot_tree_it)->runNo >= 21411 && (*pot_tree_it)->runNo <= 23259 ||
-                            (*pot_tree_it)->runNo >= 24256 && (*pot_tree_it)->runNo <= 25763
-                            )) continue;
+    if (numi_horn_mode((*pot_tree_it)->runNo) != horn_mode) continue;
 
       (*pot_tree_it)->new_pot_tree->Fill();
 

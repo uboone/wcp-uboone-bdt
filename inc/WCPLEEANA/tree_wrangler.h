@@ -70,6 +70,8 @@ namespace LEEana{
     TString samdef = "";
   };
 
+  // tree with the run/subrun/event of each entry; only these branches are left enabled, so pass a TFile of its own
+  // (not the one the wrangler copies from)
   int get_T_rse(TFile* file1, TTree*& T_rse, int &run, int &subrun, int &event);
 
   std::vector<int> get_low_lifetime_runs();
